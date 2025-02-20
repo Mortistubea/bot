@@ -1,19 +1,14 @@
+import aiohttp
 import aiosqlite
-import requests
 import asyncio
-import logging
 from datetime import datetime, time
-from aiogram import types
-from aiogram.dispatcher.filters import CommandStart
+from aiogram import Bot, Dispatcher, types
+from aiogram.dispatcher.filters import CommandStart, Text
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.utils import executor
+from data.config import ADMINS
 from loader import bot, dp
 from keyboards.reply.cities import cities
-from aiogram.dispatcher.filters import Text
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from aiogram import Dispatcher
-
-from data.config import ADMINS
-
-import aiosqlite
 
 async def create_db():
     async with aiosqlite.connect("database.db") as db:
@@ -43,9 +38,10 @@ async def save_user_city(user_id, city):
 
 async def get_prayer_times(city):
     url = f"https://islomapi.uz/api/present/day?region={city}"
-    response = requests.get(url)
-    data = response.json()
-
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            data = await response.json()
+    
     hijri_month = data["hijri_date"]["month"]
     hijri_day = data["hijri_date"]["day"]
     bomdod = data["times"]["tong_saharlik"]
@@ -91,22 +87,19 @@ async def city_prayer_times(message: types.Message):
 @dp.callback_query_handler(Text(startswith="daily_"))
 async def set_daily_notify(callback_query: CallbackQuery):
     user_id = callback_query.from_user.id
-    if callback_query.data == "daily_yes":
-        async with aiosqlite.connect("database.db") as db:
-            await db.execute("UPDATE users SET daily_notify = 1 WHERE user_id = ?", (user_id,))
-            await db.commit()
-        await callback_query.message.answer("✅ Har kuni namoz vaqtlari yuboriladi.")
-    else:
-        async with aiosqlite.connect("database.db") as db:
-            await db.execute("UPDATE users SET daily_notify = 0 WHERE user_id = ?", (user_id,))
-            await db.commit()
-        await callback_query.message.answer("❌ Namoz vaqtlari yuborilmaydi.")
+    daily_notify = 1 if callback_query.data == "daily_yes" else 0
+    async with aiosqlite.connect("database.db") as db:
+        await db.execute("UPDATE users SET daily_notify = ? WHERE user_id = ?", (daily_notify, user_id))
+        await db.commit()
+    
+    response_text = "✅ Har kuni namoz vaqtlari yuboriladi." if daily_notify else "❌ Namoz vaqtlari yuborilmaydi."
+    await callback_query.message.answer(response_text)
     await callback_query.answer()
 
 async def send_prayer_times():
     while True:
         now = datetime.now().time()
-        if now >= time(20, 0) and now < time(20, 1):
+        if now.hour == 20 and now.minute == 0:
             async with aiosqlite.connect("database.db") as db:
                 async with db.execute("SELECT user_id, city FROM users WHERE daily_notify = 1") as cursor:
                     users = await cursor.fetchall()
@@ -116,3 +109,7 @@ async def send_prayer_times():
                 await bot.send_message(user_id, prayer_times)
             await asyncio.sleep(60)  # 1 daqiqa kutish
         await asyncio.sleep(30)
+
+async def on_startup(dp):
+    await create_db()
+    asyncio.create_task(send_prayer_times())
