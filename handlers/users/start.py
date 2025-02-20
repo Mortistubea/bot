@@ -41,7 +41,11 @@ async def get_prayer_times(city):
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as response:
             data = await response.json()
-    
+            print(data)  # API dan qaytayotgan ma'lumotni ko'ramiz
+
+    if "hijri_date" not in data:
+        return "⚠️ Ma'lumot topilmadi yoki API xatosi yuz berdi."
+
     hijri_month = data["hijri_date"]["month"]
     hijri_day = data["hijri_date"]["day"]
     bomdod = data["times"]["tong_saharlik"]
@@ -72,6 +76,7 @@ async def get_prayer_times(city):
 
     \U0001F4C5 {date[:4]} - yil | Oyning {date[5:7]} - kuni | {kun} | Vaqt - {hozirgi_vaqt}
     """
+
 
 @dp.message_handler(CommandStart())
 async def bot_start(message: types.Message):
